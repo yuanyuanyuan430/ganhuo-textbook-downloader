@@ -1,8 +1,8 @@
-# china-textbook-downloader-skill
+# ganhuo-textbook-downloader
 
-Agent skill for finding and downloading public PDF textbooks from TapXWorld/ChinaTextbook.
+Claude/Codex skill for ranking and downloading public PDF textbooks from TapXWorld/ChinaTextbook.
 
-Use when the user asks to download or locate a Chinese textbook by grade, subject, publisher/version, semester/book volume, or title.
+Use when the user asks in natural language to find or download Chinese textbooks by province/city, grade, subject, version, semester, or title.
 
 Main entry:
 - `SKILL.md`
@@ -11,17 +11,19 @@ Script:
 - `scripts/china_textbook_downloader.py`
 
 Typical prompts:
-- `用 $china-textbook-downloader 帮我下载小学三年级语文上册教材。`
-- `用 $china-textbook-downloader 找初二物理下册人教版 PDF。`
-- `用 $china-textbook-downloader 下载高等数学教材。`
+- `用 $ganhuo-textbook-downloader 帮我下载安徽合肥三年级语文上册。`
+- `用 $ganhuo-textbook-downloader 找广东深圳七年级数学教材，先列候选。`
+- `用 $ganhuo-textbook-downloader 下载上海高一英语必修第一册。`
 
 Agent behavior:
-1. Parse textbook clues.
+1. Parse province/city and textbook clues.
 2. Search before downloading.
-3. Ask the user to choose when multiple candidates are plausible.
-4. Download public files only.
-5. Return local path, upstream path, and source URL.
+3. Use province preferences as ranking hints only.
+4. Ask the user to choose when multiple candidates are plausible.
+5. Download public files only.
+6. Return local path, upstream path, source URL, and ranking reasons.
 
 Safety:
 - Do not bypass login, payment, copyright, or access controls.
+- Do not claim official province textbook assignment.
 - Do not claim ownership of upstream textbook resources.

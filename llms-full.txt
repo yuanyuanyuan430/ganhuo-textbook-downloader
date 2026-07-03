@@ -1,17 +1,18 @@
-# china-textbook-downloader-skill
+# ganhuo-textbook-downloader
 
 ## Purpose
 
-`china-textbook-downloader-skill` helps an Agent locate and download publicly accessible PDF textbooks from `TapXWorld/ChinaTextbook` on GitHub.
+`ganhuo-textbook-downloader` helps an Agent locate and download publicly accessible PDF textbooks from `TapXWorld/ChinaTextbook` on GitHub. It accepts natural-language requests and can infer province/city clues to rank likely textbook versions.
 
 ## Inputs
 
 Useful user clues:
+- province/city: 安徽, 合肥, 江苏, 南京, 广东, 深圳, 上海, 北京, etc.
 - stage: 小学, 初中, 高中, 大学
-- grade: 一年级, 三年级, 七年级, 初二, etc.
+- grade: 一年级, 三年级, 七年级, 初二, 高一, etc.
 - subject: 语文, 数学, 英语, 物理, 化学, 历史, 地理, 生物学, 思想政治, etc.
-- version/publisher: 人教版, 统编版, 人民教育出版社, etc.
-- volume: 上册, 下册, 必修, 选择性必修
+- version/publisher: 人教版, 统编版, 苏教版, 北师大版, 沪教版, 浙教版, etc.
+- volume: 上册, 下册, 全一册, 必修第一册, 选择性必修
 - exact title text
 - target output directory
 
@@ -20,16 +21,27 @@ Useful user clues:
 Search first:
 
 ```bash
-python3 scripts/china_textbook_downloader.py search "小学 语文 三年级 上册"
+python3 scripts/china_textbook_downloader.py search "安徽 合肥 小学 三年级 语文 上册" --explain
 ```
 
 Download after the match is clear:
 
 ```bash
-python3 scripts/china_textbook_downloader.py download "小学 语文 三年级 上册" --out "$HOME/Downloads/ChinaTextbook" --first
+python3 scripts/china_textbook_downloader.py download "安徽 合肥 小学 三年级 语文 上册" --out "$HOME/Downloads/ChinaTextbook" --auto
 ```
 
 If candidates are ambiguous, show the numbered list and ask the user which result to use. Re-run with `--pick N`.
+
+## Province Ranking
+
+The province table is a conservative ranking aid. It boosts likely versions but does not prove the school uses that edition. User-specified version names outrank province preferences.
+
+Examples:
+- `语文`, `道德与法治`, `历史` -> prefer `统编版`.
+- `江苏 数学` -> boost `苏教版`, then fall back to `人教版`.
+- `广东/深圳 数学` -> boost `北师大版`, then fall back to `人教版`.
+- `山东 物理/生物` -> boost `鲁科版`, then fall back to `人教版`.
+- Unknown province -> use `统编版` and `人教版` defaults.
 
 ## Output
 
@@ -38,12 +50,14 @@ Return:
 - upstream GitHub path
 - source URL
 - whether split parts were merged
+- ranking reasons
 
 ## Failure Handling
 
-- No results: ask for more clues such as grade, subject, or version.
+- No results: ask for more clues such as grade, subject, version, or book volume.
 - Multiple results: ask the user to choose a numbered result.
-- GitHub request failed: retry once later or use `--refresh` if cache looks stale.
+- Province preference conflict: respect explicit user version or ask for confirmation.
+- GitHub request failed: retry later or use `--refresh` if cache looks stale.
 - Download failed: report the URL and error without inventing a successful path.
 
 ## Constraints
@@ -51,4 +65,4 @@ Return:
 - Use only publicly accessible upstream files.
 - Do not bypass login, payment, copyright, or access controls.
 - Do not promise that every textbook exists in the upstream repository.
-- Do not create extra abstractions or dependencies unless the script stops being enough.
+- Do not present province ranking as official or current for every school.

@@ -1,4 +1,4 @@
 interface:
-  display_name: "中国教材下载器"
-  short_description: "从 ChinaTextbook 按年级、学科、版本查找并下载公开教材"
-  default_prompt: "Use $china-textbook-downloader to find and download a public ChinaTextbook PDF for my textbook request."
+  display_name: "干活教材下载器"
+  short_description: "按省份、年级、学科从 ChinaTextbook 排序并下载公开教材"
+  default_prompt: "Use $ganhuo-textbook-downloader to find and download a public ChinaTextbook PDF for my textbook request."
