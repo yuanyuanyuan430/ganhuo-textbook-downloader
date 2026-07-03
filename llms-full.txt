@@ -1,0 +1,54 @@
+# china-textbook-downloader-skill
+
+## Purpose
+
+`china-textbook-downloader-skill` helps an Agent locate and download publicly accessible PDF textbooks from `TapXWorld/ChinaTextbook` on GitHub.
+
+## Inputs
+
+Useful user clues:
+- stage: 小学, 初中, 高中, 大学
+- grade: 一年级, 三年级, 七年级, 初二, etc.
+- subject: 语文, 数学, 英语, 物理, 化学, 历史, 地理, 生物学, 思想政治, etc.
+- version/publisher: 人教版, 统编版, 人民教育出版社, etc.
+- volume: 上册, 下册, 必修, 选择性必修
+- exact title text
+- target output directory
+
+## Execution
+
+Search first:
+
+```bash
+python3 scripts/china_textbook_downloader.py search "小学 语文 三年级 上册"
+```
+
+Download after the match is clear:
+
+```bash
+python3 scripts/china_textbook_downloader.py download "小学 语文 三年级 上册" --out "$HOME/Downloads/ChinaTextbook" --first
+```
+
+If candidates are ambiguous, show the numbered list and ask the user which result to use. Re-run with `--pick N`.
+
+## Output
+
+Return:
+- local file path
+- upstream GitHub path
+- source URL
+- whether split parts were merged
+
+## Failure Handling
+
+- No results: ask for more clues such as grade, subject, or version.
+- Multiple results: ask the user to choose a numbered result.
+- GitHub request failed: retry once later or use `--refresh` if cache looks stale.
+- Download failed: report the URL and error without inventing a successful path.
+
+## Constraints
+
+- Use only publicly accessible upstream files.
+- Do not bypass login, payment, copyright, or access controls.
+- Do not promise that every textbook exists in the upstream repository.
+- Do not create extra abstractions or dependencies unless the script stops being enough.

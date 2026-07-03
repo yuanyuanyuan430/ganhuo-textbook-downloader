@@ -1,0 +1,27 @@
+# china-textbook-downloader-skill
+
+Agent skill for finding and downloading public PDF textbooks from TapXWorld/ChinaTextbook.
+
+Use when the user asks to download or locate a Chinese textbook by grade, subject, publisher/version, semester/book volume, or title.
+
+Main entry:
+- `SKILL.md`
+
+Script:
+- `scripts/china_textbook_downloader.py`
+
+Typical prompts:
+- `用 $china-textbook-downloader 帮我下载小学三年级语文上册教材。`
+- `用 $china-textbook-downloader 找初二物理下册人教版 PDF。`
+- `用 $china-textbook-downloader 下载高等数学教材。`
+
+Agent behavior:
+1. Parse textbook clues.
+2. Search before downloading.
+3. Ask the user to choose when multiple candidates are plausible.
+4. Download public files only.
+5. Return local path, upstream path, and source URL.
+
+Safety:
+- Do not bypass login, payment, copyright, or access controls.
+- Do not claim ownership of upstream textbook resources.
