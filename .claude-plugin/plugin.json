@@ -1,12 +1,12 @@
 {
   "name": "ganhuo-textbook-downloader",
-  "version": "1.0.0",
-  "description": "Infer province and textbook clues from natural language, rank public ChinaTextbook PDFs, and download selected textbooks.",
+  "version": "1.1.0",
+  "description": "Infer K-12, university, and cover/OCR textbook clues from natural language, rank public ChinaTextbook files, and download selected textbooks.",
   "author": {
     "name": "yuanyuanyuan430",
     "url": "https://github.com/yuanyuanyuan430"
   },
   "license": "MIT",
-  "keywords": ["ganhuo", "textbook", "china-textbook", "pdf", "education", "claude-skill"],
+  "keywords": ["ganhuo", "textbook", "china-textbook", "pdf", "university", "ocr", "education", "claude-skill"],
   "skills": ["./"]
 }

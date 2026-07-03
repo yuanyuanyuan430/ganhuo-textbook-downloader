@@ -1,8 +1,8 @@
 # ganhuo-textbook-downloader
 
-Claude/Codex skill for ranking and downloading public PDF textbooks from TapXWorld/ChinaTextbook.
+Claude/Codex skill for ranking and downloading public textbook files from TapXWorld/ChinaTextbook.
 
-Use when the user asks in natural language to find or download Chinese textbooks by province/city, grade, subject, version, semester, or title.
+Use when the user asks in natural language to find or download Chinese textbooks by province/city, grade, subject, version, semester, university textbook clues, title, or readable cover/page text.
 
 Main entry:
 - `SKILL.md`
@@ -14,11 +14,13 @@ Typical prompts:
 - `用 $ganhuo-textbook-downloader 帮我下载安徽合肥三年级语文上册。`
 - `用 $ganhuo-textbook-downloader 找广东深圳七年级数学教材，先列候选。`
 - `用 $ganhuo-textbook-downloader 下载上海高一英语必修第一册。`
+- `用 $ganhuo-textbook-downloader 找大学高数同济第七版上册。`
+- `用 $ganhuo-textbook-downloader 根据封面截图匹配九上译林英语。`
 
 Agent behavior:
 1. Parse province/city and textbook clues.
 2. Search before downloading.
-3. Use province preferences as ranking hints only.
+3. Use province preferences, university aliases, and cover/OCR text as ranking hints only.
 4. Ask the user to choose when multiple candidates are plausible.
 5. Download public files only.
 6. Return local path, upstream path, source URL, and ranking reasons.
@@ -27,3 +29,4 @@ Safety:
 - Do not bypass login, payment, copyright, or access controls.
 - Do not claim official province textbook assignment.
 - Do not claim ownership of upstream textbook resources.
+- Do not claim an exact cover/university edition match when the upstream repository only has near misses.

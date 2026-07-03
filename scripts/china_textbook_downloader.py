@@ -7,8 +7,11 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,11 +23,16 @@ REPO = "TapXWorld/ChinaTextbook"
 BRANCH = "master"
 TREE_API = f"https://api.github.com/repos/{REPO}/git/trees/{BRANCH}?recursive=1"
 RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/"
-CACHE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ganhuo-textbook-downloader" / "tree.json"
+CACHE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ganhuo-textbook-downloader" / "tree-v2.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_OUT = Path.home() / "Downloads" / "ChinaTextbook"
+SUPPORTED_FILE_RE = re.compile(r"\.(?:pdf(?:\.\d+)?|djvu)$", re.IGNORECASE)
 
 ALIASES = {
+    "新版译林": "译林版 新版",
+    "新译林": "译林版 新版",
+    "牛津译林": "译林版",
+    "译林英语": "译林版 英语",
     "初一": "七年级",
     "初二": "八年级",
     "初三": "九年级",
@@ -39,6 +47,19 @@ ALIASES = {
     "小六": "六年级",
     "政治": "思想政治",
     "生物": "生物学",
+    "高数": "高等数学",
+    "线代": "线性代数",
+    "概率统计": "概率论与数理统计",
+    "概统": "概率论与数理统计",
+    "第四版": "四版",
+    "第4版": "四版",
+    "第5版": "第五版",
+    "第6版": "第六版",
+    "第7版": "第七版",
+    "第8版": "第八版",
+    "本科": "大学",
+    "高校": "大学",
+    "高等教育": "大学",
 }
 
 KEYWORDS = [
@@ -47,12 +68,36 @@ KEYWORDS = [
     "道德与法治",
     "思想政治",
     "人民教育出版社",
+    "概率论与数理统计",
     "高等数学",
     "线性代数",
     "离散数学",
+    "大学物理",
+    "大学英语",
+    "数理统计",
     "概率论",
+    "程序设计",
+    "数据结构",
+    "操作系统",
+    "计算机网络",
+    "C语言程序设计",
+    "原书",
     "信息技术",
     "通用技术",
+    "计算机",
+    "同济大学",
+    "浙江大学",
+    "同济",
+    "浙大",
+    "第八版",
+    "第8版",
+    "第七版",
+    "第7版",
+    "第六版",
+    "第6版",
+    "第五版",
+    "第5版",
+    "四版",
     "一年级",
     "二年级",
     "三年级",
@@ -77,6 +122,7 @@ KEYWORDS = [
     "初中",
     "高中",
     "大学",
+    "新版",
     "语文",
     "数学",
     "英语",
@@ -115,6 +161,15 @@ DROP_WORDS = {
     "查找",
     "寻找",
     "找到",
+    "根据",
+    "封面",
+    "图片",
+    "截图",
+    "扫描",
+    "识别",
+    "ocr",
+    "OCR",
+    "里的",
     "教材",
     "教科书",
     "电子版",
@@ -222,11 +277,21 @@ SUBJECTS = [
     "体育与健康",
     "信息技术",
     "通用技术",
+    "概率论与数理统计",
     "生物学",
     "高等数学",
     "线性代数",
     "离散数学",
+    "大学物理",
+    "大学英语",
+    "数理统计",
     "概率论",
+    "程序设计",
+    "数据结构",
+    "操作系统",
+    "计算机网络",
+    "C语言程序设计",
+    "计算机",
     "语文",
     "数学",
     "英语",
@@ -244,8 +309,30 @@ SUBJECTS = [
 ]
 
 CORE_UNIFIED_SUBJECTS = {"语文", "道德与法治", "历史"}
-NON_TEXTBOOK_WORDS = ("练习", "习题", "教师", "教师用书", "活动手册", "书法练习")
+UNIVERSITY_SUBJECTS = {"高等数学", "线性代数", "离散数学", "概率论", "概率论与数理统计", "数理统计", "大学物理", "大学英语", "程序设计", "数据结构", "操作系统", "计算机网络", "C语言程序设计", "计算机"}
+NON_TEXTBOOK_WORDS = ("练习", "习题", "答案", "全解", "解析", "辅导", "学习辅导", "指南", "附册", "教师", "教师用书", "活动手册", "书法练习")
 VERSION_WORDS = ("统编版", "人教版", "人教A版", "北师大", "北师大版", "苏教版", "沪教版", "北京版", "浙教版", "粤教版", "译林版", "鲁教版", "鲁科版", "青岛版", "华东师大版", "外研版")
+GRADE_STAGE = {
+    "一年级": "小学",
+    "二年级": "小学",
+    "三年级": "小学",
+    "四年级": "小学",
+    "五年级": "小学",
+    "六年级": "小学",
+    "七年级": "初中",
+    "八年级": "初中",
+    "九年级": "初中",
+}
+COVER_NOISE_WORDS = {
+    "目录",
+    "预览模式",
+    "播放演示",
+    "云打印",
+    "手机",
+    "电量",
+    "wifi",
+    "返回",
+}
 
 # ponytail: province hints are ranking nudges, not official textbook assignments.
 PROVINCE_PREFERENCES = {
@@ -283,6 +370,7 @@ class Result:
 class RequestProfile:
     province: str | None = None
     location: str | None = None
+    stage: str | None = None
     subject: str | None = None
     explicit_versions: list[str] = field(default_factory=list)
 
@@ -291,8 +379,50 @@ def raw_url(path: str) -> str:
     return RAW_BASE + urllib.parse.quote(path, safe="/")
 
 
+def expand_compact_terms(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text)
+    grade_map = {
+        "一": "一年级",
+        "二": "二年级",
+        "三": "三年级",
+        "四": "四年级",
+        "五": "五年级",
+        "六": "六年级",
+        "七": "七年级",
+        "八": "八年级",
+        "九": "九年级",
+        "1": "一年级",
+        "2": "二年级",
+        "3": "三年级",
+        "4": "四年级",
+        "5": "五年级",
+        "6": "六年级",
+        "7": "七年级",
+        "8": "八年级",
+        "9": "九年级",
+    }
+    semester_map = {"上": "上册", "下": "下册", "a": "上册", "A": "上册", "b": "下册", "B": "下册"}
+
+    def replace_grade_semester(match: re.Match[str]) -> str:
+        return f" {grade_map[match.group(1)]} {semester_map[match.group(2)]} "
+
+    text = re.sub(r"(?<!浙)大\s*[一二三四1-4]", "大学", text)
+    text = re.sub(r"离散(?!数学)", "离散数学", text)
+    text = re.sub(r"数统", "概率论与数理统计", text)
+    text = text.replace("微积分", "高等数学")
+    text = re.sub(r"高数\s*上册?", "高等数学 上册", text)
+    text = re.sub(r"高数\s*下册?", "高等数学 下册", text)
+    text = re.sub(r"初\s*([一二三])\s*([上下])", lambda match: f" {ALIASES['初' + match.group(1)]} {semester_map[match.group(2)]} ", text)
+    text = re.sub(r"小\s*([一二三四五六])\s*([上下])", lambda match: f" {ALIASES['小' + match.group(1)]} {semester_map[match.group(2)]} ", text)
+    text = re.sub(r"([一二三四五六七八九1-9])\s*年级\s*([上下])", replace_grade_semester, text)
+    text = re.sub(r"(?<!第)([一二三四五六七八九1-9])\s*([上下])", replace_grade_semester, text)
+    text = re.sub(r"\b([7-9])\s*([AaBb])\b", replace_grade_semester, text)
+    text = re.sub(r"高[一二三1-3]\s*([上下])", lambda match: f" 高中 {semester_map[match.group(1)]} ", text)
+    return text
+
+
 def normalize(text: str) -> str:
-    text = text.lower()
+    text = unicodedata.normalize("NFKC", text).lower()
     for old, new in ALIASES.items():
         text = text.replace(old.lower(), new.lower())
     return re.sub(r"[\s/_·・（）()【】\[\]《》<>:：,，.。、\-]+", "", text)
@@ -300,7 +430,9 @@ def normalize(text: str) -> str:
 
 def extract_profile(query: str, province_override: str | None = None) -> RequestProfile:
     profile = RequestProfile()
-    normalized = query
+    normalized = expand_compact_terms(query)
+    for old, new in ALIASES.items():
+        normalized = normalized.replace(old, new)
 
     if province_override:
         province = PROVINCE_ALIASES.get(province_override, PROVINCE_ALIASES.get(province_override.rstrip("省市"), province_override))
@@ -324,6 +456,18 @@ def extract_profile(query: str, province_override: str | None = None) -> Request
             profile.subject = subject
             break
 
+    for stage in ("小学", "初中", "高中", "大学"):
+        if stage in normalized:
+            profile.stage = stage
+            break
+    if not profile.stage and profile.subject in UNIVERSITY_SUBJECTS:
+        profile.stage = "大学"
+    if not profile.stage:
+        for grade, stage in GRADE_STAGE.items():
+            if grade in normalized:
+                profile.stage = stage
+                break
+
     for version in VERSION_WORDS:
         if version in normalized:
             profile.explicit_versions.append(version)
@@ -340,7 +484,7 @@ def strip_location_words(query: str) -> str:
 
 def query_tokens(query: str, profile: RequestProfile | None = None) -> list[str]:
     query = strip_location_words(query)
-    normalized_query = query
+    normalized_query = expand_compact_terms(query)
     for old, new in ALIASES.items():
         normalized_query = normalized_query.replace(old, new)
     for word in DROP_WORDS:
@@ -363,6 +507,83 @@ def query_tokens(query: str, profile: RequestProfile | None = None) -> list[str]
 
     seen: set[str] = set()
     return [token for token in tokens if not (token in seen or seen.add(token))]
+
+
+def clean_cover_text(text: str) -> str:
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        normalized = normalize(stripped)
+        if any(normalize(word) in normalized for word in COVER_NOISE_WORDS):
+            continue
+        if re.fullmatch(r"[\d:：<>\s|=_\-@©]+", stripped):
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)
+
+
+def cover_text_from_image(path: str) -> tuple[str, list[str]]:
+    image_path = Path(path).expanduser()
+    if not image_path.exists():
+        raise SystemExit(f"Cover image not found: {image_path}")
+
+    texts: list[str] = []
+    notes: list[str] = []
+    stem = image_path.stem
+    if stem and not stem.startswith("codex-clipboard"):
+        texts.append(stem)
+        notes.append("cover filename clues")
+
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        notes.append("cover OCR skipped: tesseract not found")
+        return "\n".join(texts), notes
+
+    for lang in ("chi_sim+eng", "eng"):
+        try:
+            completed = subprocess.run(
+                [tesseract, str(image_path), "stdout", "-l", lang],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=25,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        cleaned = clean_cover_text(completed.stdout)
+        if completed.returncode == 0 and cleaned:
+            texts.append(cleaned)
+            notes.append(f"cover OCR clues ({lang})")
+            break
+    else:
+        notes.append("cover OCR produced no usable text")
+
+    return "\n".join(texts), notes
+
+
+def build_effective_query(query: str, cover_image: str | None = None, ocr_text: str | None = None) -> tuple[str, list[str]]:
+    parts = [query]
+    notes: list[str] = []
+    if ocr_text:
+        cleaned = clean_cover_text(ocr_text)
+        if cleaned:
+            parts.append(cleaned)
+            notes.append("supplied cover text clues")
+    if cover_image:
+        cover_text, cover_notes = cover_text_from_image(cover_image)
+        if cover_text:
+            parts.append(cover_text)
+        notes.extend(cover_notes)
+    return "\n".join(parts), notes
+
+
+def add_context_reasons(results: list[Result], notes: list[str]) -> None:
+    if not notes:
+        return
+    for result in results:
+        result.reasons = [*notes, *result.reasons]
 
 
 def preference_terms(profile: RequestProfile) -> list[str]:
@@ -394,7 +615,7 @@ def load_tree(refresh: bool = False) -> list[str]:
         for item in data.get("tree", [])
         if item.get("type") == "blob"
         and not item.get("path", "").startswith(".cache/")
-        and re.search(r"\.pdf(\.\d+)?$", item.get("path", ""), re.IGNORECASE)
+        and SUPPORTED_FILE_RE.search(item.get("path", ""))
     ]
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     CACHE_PATH.write_text(json.dumps(paths, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -436,6 +657,14 @@ def search(paths: list[str], query: str, limit: int, province: str | None = None
         if matched == len(tokens):
             score += 1000
             reasons.append("all query terms matched")
+
+        if profile.stage:
+            if base.startswith(profile.stage + "/"):
+                score += 160
+                reasons.append(f"stage match: {profile.stage}")
+        elif profile.subject in UNIVERSITY_SUBJECTS and base.startswith("大学/"):
+            score += 120
+            reasons.append("university subject match")
 
         for version in profile.explicit_versions:
             if normalize(version) in haystack:
@@ -537,6 +766,8 @@ def print_results(results: list[Result], json_output: bool = False, explain: boo
             details.append(f"province={profile.province}")
         if profile.location:
             details.append(f"location={profile.location}")
+        if profile.stage:
+            details.append(f"stage={profile.stage}")
         if profile.subject:
             details.append(f"subject={profile.subject}")
         if profile.explicit_versions:
@@ -553,25 +784,29 @@ def print_results(results: list[Result], json_output: bool = False, explain: boo
 
 def command_search(args: argparse.Namespace) -> int:
     query = " ".join(args.query)
-    profile = extract_profile(query, province_override=args.province)
+    effective_query, context_notes = build_effective_query(query, cover_image=args.cover_image, ocr_text=args.ocr_text)
+    profile = extract_profile(effective_query, province_override=args.province)
     try:
-        results = search(load_tree(args.refresh), query, args.limit, province=args.province)
+        results = search(load_tree(args.refresh), effective_query, args.limit, province=args.province)
     except urllib.error.URLError as exc:
         print(f"GitHub request failed: {exc}", file=sys.stderr)
         return 1
+    add_context_reasons(results, context_notes)
     print_results(results, json_output=args.json, explain=args.explain, profile=profile)
     return 0 if results else 1
 
 
 def command_download(args: argparse.Namespace) -> int:
     query = " ".join(args.query)
-    profile = extract_profile(query, province_override=args.province)
-    tokens = query_tokens(query, profile)
+    effective_query, context_notes = build_effective_query(query, cover_image=args.cover_image, ocr_text=args.ocr_text)
+    profile = extract_profile(effective_query, province_override=args.province)
+    tokens = query_tokens(effective_query, profile)
     try:
-        results = search(load_tree(args.refresh), query, args.limit, province=args.province)
+        results = search(load_tree(args.refresh), effective_query, args.limit, province=args.province)
     except urllib.error.URLError as exc:
         print(f"GitHub request failed: {exc}", file=sys.stderr)
         return 1
+    add_context_reasons(results, context_notes)
 
     if not results:
         print("No matching textbook found.", file=sys.stderr)
@@ -617,9 +852,27 @@ def command_self_test(_: argparse.Namespace) -> int:
         "初中/物理/北师大版-北京师范大学出版社/九年级/义务教育教科书·物理九年级全一册.pdf_merge_folder/义务教育教科书·物理九年级全一册.pdf.1",
         "初中/物理/北师大版-北京师范大学出版社/九年级/义务教育教科书·物理九年级全一册.pdf_merge_folder/义务教育教科书·物理九年级全一册.pdf.2",
         "大学/数学/高等数学/高等数学 同济第七版 上册.pdf",
+        "大学/概率论/概率论与数理统计(浙大四版).pdf",
+        "大学/线性代数/同济大学《线性代数》（第五版）教材电子版.pdf",
+        "大学/高等数学/同济大学高等数学第七版/高等数学 第7版 上册 同济大学.pdf.1",
+        "大学/高等数学/同济大学高等数学第七版/高等数学 第7版 上册 同济大学.pdf.2",
+        "大学/离散数学/离散数学及其应用（英文第七版）Discrete Mathematics and Its Applications 7th Edition 2011.pdf",
+        "大学/离散数学/[离散数学及其应用（英文第六版）].Discrete.Mathematics.and.its.Applications.djvu",
     ]
     assert set(query_tokens("帮我下载人教版初二物理下册教材")) == {"人教版", "八年级", "物理", "下册"}
+    assert set(query_tokens("新版译林九上教材")) >= {"译林版", "新版", "九年级", "上册"}
+    assert set(query_tokens("初三上译林英语")) >= {"九年级", "上册", "译林版", "英语"}
+    assert set(query_tokens("九年级上译林英语")) >= {"九年级", "上册", "译林版", "英语"}
+    assert set(query_tokens("本科线代教材")) >= {"大学", "线性代数"}
+    assert set(query_tokens("大一高数上")) >= {"大学", "高等数学", "上册"}
+    assert set(query_tokens("大二线代同济第五版")) >= {"大学", "线性代数", "同济", "第五版"}
+    assert set(query_tokens("大三概率论浙大第四版")) >= {"大学", "概率论", "浙大", "四版"}
+    assert set(query_tokens("离散原书第六版")) >= {"离散数学", "原书", "第六版"}
+    assert set(query_tokens("数统浙大四版")) >= {"概率论与数理统计", "浙大", "四版"}
+    assert "一年级" not in query_tokens("大一高数上册")
     assert extract_profile("安徽合肥三年级语文上册").province == "安徽"
+    assert extract_profile("新版译林九上英语").stage == "初中"
+    assert extract_profile("本科线代").stage == "大学"
     assert set(query_tokens("安徽合肥三年级语文上册")) == {"三年级", "语文", "上册"}
     assert search(fake_paths, "小学 三年级 语文 上册", 5)[0].path.endswith("语文三年级上册.pdf")
     assert search(fake_paths, "安徽 合肥 小学 三年级 语文 上册", 5)[0].path.startswith("小学/语文/统编版")
@@ -633,6 +886,14 @@ def command_self_test(_: argparse.Namespace) -> int:
     assert merge_folder.path.endswith("义务教育教科书·物理九年级全一册.pdf")
     assert merge_folder.split and merge_folder.url.endswith(".pdf.1")
     assert search(fake_paths, "高等数学 上册", 5)[0].path.startswith("大学/")
+    high_math = search(fake_paths, "本科 同济 高数 第7版 上册", 5)[0]
+    assert "第7版" in high_math.path or "第七版" in high_math.path
+    assert "概率论与数理统计" in search(fake_paths, "大学 概率论 浙大 第四版", 5)[0].path
+    near_miss_tokens = query_tokens("大学 线性代数 同济 第六版")
+    assert search(fake_paths, "大学 线性代数 同济 第六版", 5)[0].matched < len(near_miss_tokens)
+    assert search(fake_paths, "大学 离散数学 英文 第六版", 5)[0].path.endswith(".djvu")
+    effective, notes = build_effective_query("图片里的教材", ocr_text="新版译林 九上教材.pdf\n目录 播放演示\nKnow yourself")
+    assert "新版译林" in effective and "目录" not in effective and notes == ["supplied cover text clues"]
     print("self-test passed")
     return 0
 
@@ -647,6 +908,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--refresh", action="store_true")
     search_parser.add_argument("--json", action="store_true")
     search_parser.add_argument("--province", help="Override or supply the province when it is not in the query.")
+    search_parser.add_argument("--cover-image", help="Use OCR from a cover/page screenshot as extra matching clues.")
+    search_parser.add_argument("--ocr-text", help="Use already-extracted cover/page text as extra matching clues.")
     search_parser.add_argument("--explain", action="store_true", help="Show why each candidate was ranked.")
     search_parser.set_defaults(func=command_search)
 
@@ -660,6 +923,8 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument("--overwrite", action="store_true")
     download_parser.add_argument("--refresh", action="store_true")
     download_parser.add_argument("--province", help="Override or supply the province when it is not in the query.")
+    download_parser.add_argument("--cover-image", help="Use OCR from a cover/page screenshot as extra matching clues.")
+    download_parser.add_argument("--ocr-text", help="Use already-extracted cover/page text as extra matching clues.")
     download_parser.add_argument("--explain", action="store_true", help="Show ranking reasons when multiple candidates need confirmation.")
     download_parser.set_defaults(func=command_download)
 
